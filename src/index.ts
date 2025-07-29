@@ -27,9 +27,9 @@ const configurationCache = new Map<string, Required<LlmsConfig>>();
 
 /**
  * Astro integration to automatically generate AI-friendly documentation files
- * Generates /llms.txt, /llms-small.txt, and /llms-full.txt in public and build directories
+ * Generates /llms.txt, /llms-small.txt, and /llms-full.txt in build directory only
  */
-export default function astroLlmsGenerator(userConfig: LlmsConfig = {}): AstroIntegration {
+export default function astroLLMsGenerator(userConfig: LlmsConfig = {}): AstroIntegration {
   let astroConfiguration: AstroConfig;
 
   return {
@@ -43,18 +43,6 @@ export default function astroLlmsGenerator(userConfig: LlmsConfig = {}): AstroIn
         logger.info("Starting LLMs documentation generation...");
       },
 
-      "astro:build:setup": async ({ vite, target, logger }) => {
-        if (target === "server") return;
-        
-        try {
-          const config = await generateSmartDefaults(astroConfiguration, userConfig, process.cwd());
-          await generatePlaceholderFilesToPublic(config, astroConfiguration, logger);
-          logger.info("✅ Generated placeholder LLMs files in public directory");
-        } catch (error) {
-          logger.warn(`Early LLMs generation failed, will retry in build:done: ${error}`);
-        }
-      },
-
       "astro:build:done": async ({ dir, pages, logger }) => {
         const distDirectory = fileURLToPath(dir);
         
@@ -62,64 +50,21 @@ export default function astroLlmsGenerator(userConfig: LlmsConfig = {}): AstroIn
           const config = await generateSmartDefaults(astroConfiguration, userConfig, distDirectory);
           const pageDataList = await discoverAndProcessPages(pages, distDirectory, astroConfiguration);
           
-          // Generate files in both public and build directories
+          // Generate files only in build directory
           await Promise.all([
-            // Generate to build output directory
             generateLlmsIndexFile(pageDataList, config, distDirectory, astroConfiguration),
             generateLlmsSmallFile(pageDataList, config, distDirectory, astroConfiguration),
-            generateLlmsFullFile(pageDataList, config, distDirectory),
-            
-            // Generate to public directory for static serving
-            generateFilesToPublicDirectory(pageDataList, config, astroConfiguration)
+            generateLlmsFullFile(pageDataList, config, distDirectory)
           ]);
 
           logger.info("✅ Generated llms.txt, llms-small.txt, and llms-full.txt");
-          logger.info("Available in both public/ and build output dir");
+          logger.info("Available in build output dir");
         } catch (error) {
           logger.error(`Failed to generate LLMs files: ${error}`);
         }
       },
     },
   };
-}
-
-/**
- * Generate placeholder files to public directory for early availability
- */
-async function generatePlaceholderFilesToPublic(
-  config: Required<LlmsConfig>,
-  astroConfig: AstroConfig,
-  logger: any
-): Promise<void> {
-  try {
-    const placeholderContent = createPlaceholderContent(config.title, config.description);
-    const publicDirectory = getPublicDirectory(astroConfig);
-    
-    await ensureDirectoryExists(publicDirectory);
-    await writeAllPlaceholderFiles(publicDirectory, placeholderContent);
-  } catch (error) {
-    logger.warn(`Failed to generate placeholder files: ${error}`);
-  }
-}
-
-/**
- * Generate comprehensive files to public directory
- */
-async function generateFilesToPublicDirectory(
-  pages: PageData[],
-  config: Required<LlmsConfig>,
-  astroConfig: AstroConfig
-): Promise<void> {
-  const publicDirectory = getPublicDirectory(astroConfig);
-  await ensureDirectoryExists(publicDirectory);
-
-  const baseUrl = astroConfig.site || "";
-  
-  await Promise.all([
-    generateOptimizedLlmsIndexFile(pages, config, baseUrl, publicDirectory),
-    generateOptimizedLlmsSmallFile(pages, config, baseUrl, publicDirectory),
-    generateOptimizedLlmsFullFile(pages, config, publicDirectory)
-  ]);
 }
 
 /**
@@ -233,48 +178,7 @@ async function extractPageDataFromHtml(
 }
 
 /**
- * Generate optimized llms.txt index file
- */
-async function generateOptimizedLlmsIndexFile(
-  pages: PageData[],
-  config: Required<LlmsConfig>,
-  baseUrl: string,
-  outputDirectory: string
-): Promise<void> {
-  const contentLines = createIndexFileContent(pages, config, baseUrl);
-  const outputFilePath = path.join(outputDirectory, "llms.txt");
-  await fs.writeFile(outputFilePath, contentLines, "utf-8");
-}
-
-/**
- * Generate optimized llms-small.txt structure file
- */
-async function generateOptimizedLlmsSmallFile(
-  pages: PageData[],
-  config: Required<LlmsConfig>,
-  baseUrl: string,
-  outputDirectory: string
-): Promise<void> {
-  const contentLines = createSmallFileContent(pages, config, baseUrl);
-  const outputFilePath = path.join(outputDirectory, "llms-small.txt");
-  await fs.writeFile(outputFilePath, contentLines, "utf-8");
-}
-
-/**
- * Generate optimized llms-full.txt content file
- */
-async function generateOptimizedLlmsFullFile(
-  pages: PageData[],
-  config: Required<LlmsConfig>,
-  outputDirectory: string
-): Promise<void> {
-  const contentLines = createFullFileContent(pages, config);
-  const outputFilePath = path.join(outputDirectory, "llms-full.txt");
-  await fs.writeFile(outputFilePath, contentLines, "utf-8");
-}
-
-/**
- * Legacy functions for backward compatibility - generate to build directory
+ * Generate llms.txt index file in build directory
  */
 async function generateLlmsIndexFile(
   pages: PageData[],
@@ -286,6 +190,9 @@ async function generateLlmsIndexFile(
   await fs.writeFile(path.join(distDirectory, "llms.txt"), contentLines, "utf-8");
 }
 
+/**
+ * Generate llms-small.txt structure file in build directory
+ */
 async function generateLlmsSmallFile(
   pages: PageData[],
   config: Required<LlmsConfig>,
@@ -296,6 +203,9 @@ async function generateLlmsSmallFile(
   await fs.writeFile(path.join(distDirectory, "llms-small.txt"), contentLines, "utf-8");
 }
 
+/**
+ * Generate llms-full.txt content file in build directory
+ */
 async function generateLlmsFullFile(
   pages: PageData[],
   config: Required<LlmsConfig>,
@@ -306,19 +216,6 @@ async function generateLlmsFullFile(
 }
 
 // ====== UTILITY FUNCTIONS ======
-
-function createPlaceholderContent(title: string, description: string): string {
-  return [
-    `# ${title}`,
-    `> ${description}`,
-    "",
-    "## Pages",
-    "",
-    "*Generating page list...*",
-    "",
-    "*Auto-generated documentation index*"
-  ].join("\n");
-}
 
 function createIndexFileContent(pages: PageData[], config: Required<LlmsConfig>, baseUrl: string): string {
   const lines: string[] = [
@@ -450,11 +347,6 @@ function getHtmlFilePath(pathname: string, distDirectory: string): string {
   return pathname.includes(".") ? htmlFilePath : indexFilePath;
 }
 
-function getPublicDirectory(astroConfig: AstroConfig): string {
-  // Use Astro's configured public directory, defaulting to 'public'
-  return path.join(process.cwd(), astroConfig.publicDir?.toString() || 'public');
-}
-
 function createCacheKey(astroConfig: AstroConfig, userConfig: LlmsConfig): string {
   return JSON.stringify({ astroConfig: astroConfig.site, userConfig });
 }
@@ -482,21 +374,5 @@ function generateTitleFromSite(siteUrl?: string): string {
     return url.hostname.replace(/^www\./, "");
   } catch {
     return siteUrl;
-  }
-}
-
-async function writeAllPlaceholderFiles(outputDirectory: string, content: string): Promise<void> {
-  await Promise.all([
-    fs.writeFile(path.join(outputDirectory, "llms.txt"), content, "utf-8"),
-    fs.writeFile(path.join(outputDirectory, "llms-small.txt"), content, "utf-8"),
-    fs.writeFile(path.join(outputDirectory, "llms-full.txt"), content, "utf-8")
-  ]);
-}
-
-async function ensureDirectoryExists(directoryPath: string): Promise<void> {
-  try {
-    await fs.mkdir(directoryPath, { recursive: true });
-  } catch (error) {
-    // Directory might already exist
   }
 }

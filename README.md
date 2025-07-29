@@ -32,12 +32,12 @@ pnpm astro add astro-llms-generate
 
 ```javascript
 import { defineConfig } from 'astro/config';
-import astroLlmsGenerator from 'astro-llms-generate';
+import astroLLMsGenerator from 'astro-llms-generate';
 
 export default defineConfig({
   site: 'https://example.com', // Required for full URLs in output files
   integrations: [
-    astroLlmsGenerator(), // No configuration needed!
+    astroLLMsGenerator(), // No configuration needed!
   ],
 });
 ```
@@ -48,7 +48,7 @@ export default defineConfig({
 export default defineConfig({
   site: 'https://example.com',
   integrations: [
-    astroLlmsGenerator({
+    astroLLMsGenerator({
       title: 'My Documentation',
       description: 'Custom description for AI systems',
       includePatterns: ['**/*'], // Pages to include
@@ -61,7 +61,7 @@ export default defineConfig({
 
 ### 🗺️ Adding to Sitemap (Optional)
 
-Since files are generated in the `public/` directory, they're automatically available at `/llms.txt`, `/llms-small.txt`, and `/llms-full.txt`. To include them in your sitemap:
+Since files are generated in the build output, they're available at `/llms.txt`, `/llms-small.txt`, and `/llms-full.txt` in your deployed site. To include them in your sitemap:
 
 ```javascript
 import sitemap from '@astrojs/sitemap';
@@ -69,7 +69,7 @@ import sitemap from '@astrojs/sitemap';
 export default defineConfig({
   site: 'https://example.com',
   integrations: [
-    astroLlmsGenerator(),
+    astroLLMsGenerator(),
     sitemap({
       customPages: [
         'https://example.com/llms.txt',
@@ -83,13 +83,13 @@ export default defineConfig({
 
 ### Output Location
 
-Files are automatically generated in two locations:
-- **`public/` directory** - Served statically by your web server at `/llms.txt`, `/llms-small.txt`, `/llms-full.txt`
-- **Build output directory** - Available in the final build for deployment
+Files are automatically generated in the **build output directory** during `astro build`:
+- Available at `/llms.txt`, `/llms-small.txt`, `/llms-full.txt` in your final deployment
+- Generated only when running `astro build` (not during development)
 
 ## Performance Features
 
-- **Early Generation**: Runs during `astro:build:setup` for fast availability
+- **Build-time Generation**: Runs during `astro:build:done` for final deployment
 - **Memory Efficient**: Uses smaller batch processing to prevent memory issues
 - **Parallel Processing**: Generates all three files simultaneously
 - **Smart Cleanup**: Properly disposes of JSDOM instances and triggers garbage collection
