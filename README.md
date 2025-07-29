@@ -53,29 +53,46 @@ export default defineConfig({
       description: 'Custom description for AI systems',
       includePatterns: ['**/*'], // Pages to include
       excludePatterns: ['**/404*', '**/api/**'], // Pages to exclude
-      customSeparator: '\n\n---\n\n', // Custom separator for full content
-      outputDir: 'public' // Output directory (default: project root)
+      customSeparator: '\n\n---\n\n' // Custom separator for full content
+    }),
+  ],
+});
+```
+
+### 🗺️ Adding to Sitemap (Optional)
+
+Since files are generated in the `public/` directory, they're automatically available at `/llms.txt`, `/llms-small.txt`, and `/llms-full.txt`. To include them in your sitemap:
+
+```javascript
+import sitemap from '@astrojs/sitemap';
+
+export default defineConfig({
+  site: 'https://example.com',
+  integrations: [
+    astroLlmsGenerator(),
+    sitemap({
+      customPages: [
+        'https://example.com/llms.txt',
+        'https://example.com/llms-small.txt', 
+        'https://example.com/llms-full.txt'
+      ],
     }),
   ],
 });
 ```
 
 ### Output Location
-By default, files are generated in your project root. Set `outputDir: 'public'` to output to the `public` directory so they're automatically served by your web server.
 
-## Performance & Integration Order
+Files are automatically generated in two locations:
+- **`public/` directory** - Served statically by your web server at `/llms.txt`, `/llms-small.txt`, `/llms-full.txt`
+- **Build output directory** - Available in the final build for deployment
 
-**Important**: This integration runs early in the build process (`astro:build:setup`) so the generated files are available for sitemap generation and other integrations.
+## Performance Features
 
-```javascript
-export default defineConfig({
-  site: 'https://example.com',
-  integrations: [
-    astroLlmsGenerator(), // Runs FIRST - generates LLMs files early
-    sitemap(), // Runs AFTER - can include LLMs files in sitemap
-  ],
-});
-```
+- **Early Generation**: Runs during `astro:build:setup` for fast availability
+- **Memory Efficient**: Uses smaller batch processing to prevent memory issues
+- **Parallel Processing**: Generates all three files simultaneously
+- **Smart Cleanup**: Properly disposes of JSDOM instances and triggers garbage collection
 
 *ps: forked from [@4hse/astro-llms-txt](https://github.com/4hse/astro-llms-txt) for personal usage*
 

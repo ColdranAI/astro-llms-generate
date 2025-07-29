@@ -20,25 +20,16 @@ export interface LlmsConfig {
   includePatterns?: string[];
   excludePatterns?: string[];
   customSeparator?: string;
-  outputDir?: string;
 }
 
-interface ProcessedSiteData {
-  config: Required<LlmsConfig>;
-  pages: PageData[];
-  baseUrl: string;
-}
-
-// Configuration cache for performance
+// Simple configuration cache for performance
 const configurationCache = new Map<string, Required<LlmsConfig>>();
-const pageDataCache = new Map<string, PageData>();
 
 /**
- * Enhanced Astro integration to automatically generate AI-friendly documentation files
- * Runs early in build process to be available for sitemap generation
+ * Astro integration to automatically generate AI-friendly documentation files
+ * Generates /llms.txt, /llms-small.txt, and /llms-full.txt in public and build directories
  */
 export default function astroLlmsGenerator(userConfig: LlmsConfig = {}): AstroIntegration {
-  let processedSiteData: ProcessedSiteData | null = null;
   let astroConfiguration: AstroConfig;
 
   return {
@@ -57,8 +48,8 @@ export default function astroLlmsGenerator(userConfig: LlmsConfig = {}): AstroIn
         
         try {
           const config = await generateSmartDefaults(astroConfiguration, userConfig, process.cwd());
-          await generatePlaceholderFilesToProjectRoot(config, astroConfiguration, logger);
-          logger.info("✅ Generated placeholder LLMs files for sitemap compatibility");
+          await generatePlaceholderFilesToPublic(config, astroConfiguration, logger);
+          logger.info("✅ Generated placeholder LLMs files in public directory");
         } catch (error) {
           logger.warn(`Early LLMs generation failed, will retry in build:done: ${error}`);
         }
@@ -71,17 +62,19 @@ export default function astroLlmsGenerator(userConfig: LlmsConfig = {}): AstroIn
           const config = await generateSmartDefaults(astroConfiguration, userConfig, distDirectory);
           const pageDataList = await discoverAndProcessPages(pages, distDirectory, astroConfiguration);
           
+          // Generate files in both public and build directories
           await Promise.all([
-            // Generate to dist for immediate use
+            // Generate to build output directory
             generateLlmsIndexFile(pageDataList, config, distDirectory, astroConfiguration),
             generateLlmsSmallFile(pageDataList, config, distDirectory, astroConfiguration),
             generateLlmsFullFile(pageDataList, config, distDirectory),
             
-            // Generate to project root/outputDir for sitemap and serving
-            generateFilesToProjectRoot(pageDataList, config, astroConfiguration)
+            // Generate to public directory for static serving
+            generateFilesToPublicDirectory(pageDataList, config, astroConfiguration)
           ]);
 
           logger.info("✅ Generated llms.txt, llms-small.txt, and llms-full.txt");
+          logger.info("Available in both public/ and build output dir");
         } catch (error) {
           logger.error(`Failed to generate LLMs files: ${error}`);
         }
@@ -91,48 +84,46 @@ export default function astroLlmsGenerator(userConfig: LlmsConfig = {}): AstroIn
 }
 
 /**
- * Generate placeholder files to project root for early sitemap availability
+ * Generate placeholder files to public directory for early availability
  */
-async function generatePlaceholderFilesToProjectRoot(
+async function generatePlaceholderFilesToPublic(
   config: Required<LlmsConfig>,
   astroConfig: AstroConfig,
   logger: any
 ): Promise<void> {
   try {
     const placeholderContent = createPlaceholderContent(config.title, config.description);
-    const outputDirectory = getOutputDirectory(config.outputDir);
+    const publicDirectory = getPublicDirectory(astroConfig);
     
-    await ensureDirectoryExists(outputDirectory);
-    await writeAllPlaceholderFiles(outputDirectory, placeholderContent);
-    
-    logger.info("Generated placeholder LLMs files for sitemap compatibility");
+    await ensureDirectoryExists(publicDirectory);
+    await writeAllPlaceholderFiles(publicDirectory, placeholderContent);
   } catch (error) {
     logger.warn(`Failed to generate placeholder files: ${error}`);
   }
 }
 
 /**
- * Generate comprehensive files to project root
+ * Generate comprehensive files to public directory
  */
-async function generateFilesToProjectRoot(
+async function generateFilesToPublicDirectory(
   pages: PageData[],
   config: Required<LlmsConfig>,
   astroConfig: AstroConfig
 ): Promise<void> {
-  const outputDirectory = getOutputDirectory(config.outputDir);
-  await ensureDirectoryExists(outputDirectory);
+  const publicDirectory = getPublicDirectory(astroConfig);
+  await ensureDirectoryExists(publicDirectory);
 
   const baseUrl = astroConfig.site || "";
   
   await Promise.all([
-    generateOptimizedLlmsIndexFile(pages, config, baseUrl, outputDirectory),
-    generateOptimizedLlmsSmallFile(pages, config, baseUrl, outputDirectory),
-    generateOptimizedLlmsFullFile(pages, config, outputDirectory)
+    generateOptimizedLlmsIndexFile(pages, config, baseUrl, publicDirectory),
+    generateOptimizedLlmsSmallFile(pages, config, baseUrl, publicDirectory),
+    generateOptimizedLlmsFullFile(pages, config, publicDirectory)
   ]);
 }
 
 /**
- * Generate smart defaults with intelligent caching
+ * Generate smart defaults with caching
  */
 async function generateSmartDefaults(
   astroConfig: AstroConfig,
@@ -153,8 +144,7 @@ async function generateSmartDefaults(
     description: userConfig.description || packageDescription || `AI-friendly documentation for ${autoGeneratedTitle}`,
     includePatterns: userConfig.includePatterns || ["**/*"],
     excludePatterns: userConfig.excludePatterns || ["**/404*", "**/500*", "**/api/**"],
-    customSeparator: userConfig.customSeparator || "\n\n---\n\n",
-    outputDir: userConfig.outputDir || ""
+    customSeparator: userConfig.customSeparator || "\n\n---\n\n"
   };
 
   configurationCache.set(cacheKey, completeConfig);
@@ -162,7 +152,7 @@ async function generateSmartDefaults(
 }
 
 /**
- * Optimized page discovery with batch processing and caching
+ * Memory-efficient page discovery with smaller batch processing
  */
 async function discoverAndProcessPages(
   pages: { pathname: string }[],
@@ -170,19 +160,24 @@ async function discoverAndProcessPages(
   astroConfig: AstroConfig
 ): Promise<PageData[]> {
   const processedPages: PageData[] = [];
-  const batchSize = 10;
+  const batchSize = 5; // Reduced batch size for memory efficiency
   
   for (let i = 0; i < pages.length; i += batchSize) {
     const currentBatch = pages.slice(i, i + batchSize);
     const batchResults = await processBatchOfPages(currentBatch, distDirectory, astroConfig);
     processedPages.push(...batchResults);
+    
+    // Clear memory between batches
+    if (global.gc) {
+      global.gc();
+    }
   }
 
   return sortPagesByPathname(processedPages);
 }
 
 /**
- * Process a batch of pages in parallel
+ * Process a batch of pages in parallel with memory cleanup
  */
 async function processBatchOfPages(
   pageBatch: { pathname: string }[],
@@ -190,19 +185,11 @@ async function processBatchOfPages(
   astroConfig: AstroConfig
 ): Promise<PageData[]> {
   const batchPromises = pageBatch.map(async (page) => {
-    const cacheKey = createPageCacheKey(page.pathname, distDirectory);
-    
-    if (pageDataCache.has(cacheKey)) {
-      return pageDataCache.get(cacheKey)!;
-    }
-
     try {
       const htmlFilePath = getHtmlFilePath(page.pathname, distDirectory);
       await fs.access(htmlFilePath);
       
-      const pageData = await extractPageDataFromHtml(htmlFilePath, page.pathname, astroConfig);
-      pageDataCache.set(cacheKey, pageData);
-      return pageData;
+      return await extractPageDataFromHtml(htmlFilePath, page.pathname, astroConfig);
     } catch (error) {
       console.warn(`⚠️ Could not process page: ${page.pathname}`);
       return null;
@@ -214,7 +201,7 @@ async function processBatchOfPages(
 }
 
 /**
- * Extract comprehensive page data from HTML file with optimized processing
+ * Extract page data from HTML file with memory-efficient processing
  */
 async function extractPageDataFromHtml(
   htmlFilePath: string, 
@@ -229,6 +216,9 @@ async function extractPageDataFromHtml(
     const extractedTitle = extractTitleFromDocument(document, pathname);
     const metaDescription = extractMetaDescription(document);
     const mainContent = await extractMainContentAsMarkdown(document);
+
+    // Clean up JSDOM instance
+    documentModel.window.close();
 
     return {
       pathname,
@@ -284,7 +274,7 @@ async function generateOptimizedLlmsFullFile(
 }
 
 /**
- * Legacy functions for backward compatibility
+ * Legacy functions for backward compatibility - generate to build directory
  */
 async function generateLlmsIndexFile(
   pages: PageData[],
@@ -460,16 +450,13 @@ function getHtmlFilePath(pathname: string, distDirectory: string): string {
   return pathname.includes(".") ? htmlFilePath : indexFilePath;
 }
 
-function getOutputDirectory(outputDir?: string): string {
-  return outputDir ? path.join(process.cwd(), outputDir) : process.cwd();
+function getPublicDirectory(astroConfig: AstroConfig): string {
+  // Use Astro's configured public directory, defaulting to 'public'
+  return path.join(process.cwd(), astroConfig.publicDir?.toString() || 'public');
 }
 
 function createCacheKey(astroConfig: AstroConfig, userConfig: LlmsConfig): string {
   return JSON.stringify({ astroConfig: astroConfig.site, userConfig });
-}
-
-function createPageCacheKey(pathname: string, distDirectory: string): string {
-  return `${pathname}-${distDirectory}`;
 }
 
 function sortPagesByPathname(pages: PageData[]): PageData[] {
