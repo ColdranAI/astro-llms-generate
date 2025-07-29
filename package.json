@@ -1,6 +1,6 @@
 {
 	"name": "astro-llms-generate",
-	"version": "1.0.0",
+	"version": "1.1.0",
 	"license": "MIT",
 	"description": "Enhanced Astro integration to automatically generate AI-friendly documentation files: /llms.txt, /llms-small.txt, and /llms-full.txt",
 	"author": "nermalcat69",

@@ -32,12 +32,12 @@ pnpm astro add astro-llms-generate
 
 ```javascript
 import { defineConfig } from 'astro/config';
-import astroLlmsTxt from 'astro-llms-generate';
+import astroLlmsGenerator from 'astro-llms-generate';
 
 export default defineConfig({
-  site: 'https://example.com', // Auto-generates title from domain
+  site: 'https://example.com', // Required for full URLs in output files
   integrations: [
-    astroLlmsTxt(), // No configuration needed!
+    astroLlmsGenerator(), // No configuration needed!
   ],
 });
 ```
@@ -48,16 +48,36 @@ export default defineConfig({
 export default defineConfig({
   site: 'https://example.com',
   integrations: [
-    astroLlmsTxt({
+    astroLlmsGenerator({
       title: 'My Documentation',
       description: 'Custom description for AI systems',
       includePatterns: ['**/*'], // Pages to include
       excludePatterns: ['**/404*', '**/api/**'], // Pages to exclude
-      customSeparator: '\n\n---\n\n' // Custom separator for full content
+      customSeparator: '\n\n---\n\n', // Custom separator for full content
+      outputDir: 'public' // Output directory (default: project root)
     }),
   ],
 });
 ```
+
+### Output Location
+By default, files are generated in your project root. Set `outputDir: 'public'` to output to the `public` directory so they're automatically served by your web server.
+
+## Performance & Integration Order
+
+**Important**: This integration runs early in the build process (`astro:build:setup`) so the generated files are available for sitemap generation and other integrations.
+
+```javascript
+export default defineConfig({
+  site: 'https://example.com',
+  integrations: [
+    astroLlmsGenerator(), // Runs FIRST - generates LLMs files early
+    sitemap(), // Runs AFTER - can include LLMs files in sitemap
+  ],
+});
+```
+
+*ps: forked from [@4hse/astro-llms-txt](https://github.com/4hse/astro-llms-txt) for personal usage*
 
 ## 🤝 Contributing
 

@@ -3,7 +3,7 @@ import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 import { JSDOM } from "jsdom";
-import { entryToSimpleMarkdown } from "./entryToSimpleMarkdown";
+import { SimpleMarkdown } from "./simple-markdown";
 
 export interface PageData {
   pathname: string;
@@ -20,97 +20,188 @@ export interface LlmsConfig {
   includePatterns?: string[];
   excludePatterns?: string[];
   customSeparator?: string;
+  outputDir?: string;
 }
+
+interface ProcessedSiteData {
+  config: Required<LlmsConfig>;
+  pages: PageData[];
+  baseUrl: string;
+}
+
+// Configuration cache for performance
+const configurationCache = new Map<string, Required<LlmsConfig>>();
+const pageDataCache = new Map<string, PageData>();
 
 /**
  * Enhanced Astro integration to automatically generate AI-friendly documentation files
+ * Runs early in build process to be available for sitemap generation
  */
-export default function astroLlmsTxt(userConfig: LlmsConfig = {}): AstroIntegration {
-  let astroConfig: AstroConfig;
+export default function astroLlmsGenerator(userConfig: LlmsConfig = {}): AstroIntegration {
+  let processedSiteData: ProcessedSiteData | null = null;
+  let astroConfiguration: AstroConfig;
 
   return {
-    name: "astro-llms-txt",
+    name: "astro-llms-generate",
     hooks: {
       "astro:config:setup": ({ config }) => {
-        astroConfig = config;
+        astroConfiguration = config;
       },
-      "astro:build:done": async ({ dir, pages }) => {
-        const distDir = fileURLToPath(dir);
-        
-        // Auto-generate configuration with smart defaults
-        const config = await generateSmartDefaults(astroConfig, userConfig, distDir);
-        
-        // Discover and process all pages
-        const pageData = await discoverAndProcessPages(pages, distDir, astroConfig);
-        
-        // Generate all three output files in parallel
-        await Promise.all([
-          generateLlmsTxt(pageData, config, distDir),
-          generateLlmsSmallTxt(pageData, config, distDir),
-          generateLlmsFullTxt(pageData, config, distDir)
-        ]);
 
-        console.log("✅ Generated llms.txt, llms-small.txt, and llms-full.txt");
+      "astro:build:start": async ({ logger }) => {
+        logger.info("Starting LLMs documentation generation...");
+      },
+
+      "astro:build:setup": async ({ vite, target, logger }) => {
+        if (target === "server") return;
+        
+        try {
+          const config = await generateSmartDefaults(astroConfiguration, userConfig, process.cwd());
+          await generatePlaceholderFilesToProjectRoot(config, astroConfiguration, logger);
+          logger.info("✅ Generated placeholder LLMs files for sitemap compatibility");
+        } catch (error) {
+          logger.warn(`Early LLMs generation failed, will retry in build:done: ${error}`);
+        }
+      },
+
+      "astro:build:done": async ({ dir, pages, logger }) => {
+        const distDirectory = fileURLToPath(dir);
+        
+        try {
+          const config = await generateSmartDefaults(astroConfiguration, userConfig, distDirectory);
+          const pageDataList = await discoverAndProcessPages(pages, distDirectory, astroConfiguration);
+          
+          await Promise.all([
+            // Generate to dist for immediate use
+            generateLlmsIndexFile(pageDataList, config, distDirectory, astroConfiguration),
+            generateLlmsSmallFile(pageDataList, config, distDirectory, astroConfiguration),
+            generateLlmsFullFile(pageDataList, config, distDirectory),
+            
+            // Generate to project root/outputDir for sitemap and serving
+            generateFilesToProjectRoot(pageDataList, config, astroConfiguration)
+          ]);
+
+          logger.info("✅ Generated llms.txt, llms-small.txt, and llms-full.txt");
+        } catch (error) {
+          logger.error(`Failed to generate LLMs files: ${error}`);
+        }
       },
     },
   };
 }
 
 /**
- * Generate smart defaults from Astro config and package.json
+ * Generate placeholder files to project root for early sitemap availability
+ */
+async function generatePlaceholderFilesToProjectRoot(
+  config: Required<LlmsConfig>,
+  astroConfig: AstroConfig,
+  logger: any
+): Promise<void> {
+  try {
+    const placeholderContent = createPlaceholderContent(config.title, config.description);
+    const outputDirectory = getOutputDirectory(config.outputDir);
+    
+    await ensureDirectoryExists(outputDirectory);
+    await writeAllPlaceholderFiles(outputDirectory, placeholderContent);
+    
+    logger.info("Generated placeholder LLMs files for sitemap compatibility");
+  } catch (error) {
+    logger.warn(`Failed to generate placeholder files: ${error}`);
+  }
+}
+
+/**
+ * Generate comprehensive files to project root
+ */
+async function generateFilesToProjectRoot(
+  pages: PageData[],
+  config: Required<LlmsConfig>,
+  astroConfig: AstroConfig
+): Promise<void> {
+  const outputDirectory = getOutputDirectory(config.outputDir);
+  await ensureDirectoryExists(outputDirectory);
+
+  const baseUrl = astroConfig.site || "";
+  
+  await Promise.all([
+    generateOptimizedLlmsIndexFile(pages, config, baseUrl, outputDirectory),
+    generateOptimizedLlmsSmallFile(pages, config, baseUrl, outputDirectory),
+    generateOptimizedLlmsFullFile(pages, config, outputDirectory)
+  ]);
+}
+
+/**
+ * Generate smart defaults with intelligent caching
  */
 async function generateSmartDefaults(
   astroConfig: AstroConfig,
   userConfig: LlmsConfig,
-  distDir: string
+  distDirectory: string
 ): Promise<Required<LlmsConfig>> {
-  // Try to find package.json for description
-  let packageDescription = "";
-  try {
-    const packagePath = path.join(process.cwd(), "package.json");
-    const packageJson = JSON.parse(await fs.readFile(packagePath, "utf-8"));
-    packageDescription = packageJson.description || "";
-  } catch {
-    // Ignore package.json errors
+  const cacheKey = createCacheKey(astroConfig, userConfig);
+  
+  if (configurationCache.has(cacheKey)) {
+    return configurationCache.get(cacheKey)!;
   }
 
-  // Generate title from site URL or fallback to domain
-  let autoTitle = "Documentation";
-  if (astroConfig.site) {
-    try {
-      const url = new URL(astroConfig.site);
-      autoTitle = url.hostname.replace(/^www\./, "");
-    } catch {
-      autoTitle = astroConfig.site;
-    }
-  }
+  const packageDescription = await extractPackageDescription();
+  const autoGeneratedTitle = generateTitleFromSite(astroConfig.site);
 
-  return {
-    title: userConfig.title || autoTitle,
-    description: userConfig.description || packageDescription || `AI-friendly documentation for ${autoTitle}`,
+  const completeConfig: Required<LlmsConfig> = {
+    title: userConfig.title || autoGeneratedTitle,
+    description: userConfig.description || packageDescription || `AI-friendly documentation for ${autoGeneratedTitle}`,
     includePatterns: userConfig.includePatterns || ["**/*"],
     excludePatterns: userConfig.excludePatterns || ["**/404*", "**/500*", "**/api/**"],
-    customSeparator: userConfig.customSeparator || "\n\n---\n\n"
+    customSeparator: userConfig.customSeparator || "\n\n---\n\n",
+    outputDir: userConfig.outputDir || ""
   };
+
+  configurationCache.set(cacheKey, completeConfig);
+  return completeConfig;
 }
 
 /**
- * Discover and process all pages with metadata extraction
+ * Optimized page discovery with batch processing and caching
  */
 async function discoverAndProcessPages(
   pages: { pathname: string }[],
-  distDir: string,
+  distDirectory: string,
   astroConfig: AstroConfig
 ): Promise<PageData[]> {
   const processedPages: PageData[] = [];
+  const batchSize = 10;
   
-  // Process pages in parallel for better performance
-  const pagePromises = pages.map(async (page) => {
+  for (let i = 0; i < pages.length; i += batchSize) {
+    const currentBatch = pages.slice(i, i + batchSize);
+    const batchResults = await processBatchOfPages(currentBatch, distDirectory, astroConfig);
+    processedPages.push(...batchResults);
+  }
+
+  return sortPagesByPathname(processedPages);
+}
+
+/**
+ * Process a batch of pages in parallel
+ */
+async function processBatchOfPages(
+  pageBatch: { pathname: string }[],
+  distDirectory: string,
+  astroConfig: AstroConfig
+): Promise<PageData[]> {
+  const batchPromises = pageBatch.map(async (page) => {
+    const cacheKey = createPageCacheKey(page.pathname, distDirectory);
+    
+    if (pageDataCache.has(cacheKey)) {
+      return pageDataCache.get(cacheKey)!;
+    }
+
     try {
-      const htmlPath = getHtmlPath(page.pathname, distDir);
-      await fs.access(htmlPath);
+      const htmlFilePath = getHtmlFilePath(page.pathname, distDirectory);
+      await fs.access(htmlFilePath);
       
-      const pageData = await extractPageData(htmlPath, page.pathname, astroConfig);
+      const pageData = await extractPageDataFromHtml(htmlFilePath, page.pathname, astroConfig);
+      pageDataCache.set(cacheKey, pageData);
       return pageData;
     } catch (error) {
       console.warn(`⚠️ Could not process page: ${page.pathname}`);
@@ -118,70 +209,128 @@ async function discoverAndProcessPages(
     }
   });
 
-  const results = await Promise.all(pagePromises);
-  processedPages.push(...results.filter((page): page is PageData => page !== null));
-
-  // Sort pages by pathname for consistent output
-  return processedPages.sort((a, b) => a.pathname.localeCompare(b.pathname));
+  const batchResults = await Promise.all(batchPromises);
+  return batchResults.filter((page): page is PageData => page !== null);
 }
 
 /**
- * Extract comprehensive page data from HTML file
+ * Extract comprehensive page data from HTML file with optimized processing
  */
-async function extractPageData(
-  htmlPath: string, 
+async function extractPageDataFromHtml(
+  htmlFilePath: string, 
   pathname: string, 
   astroConfig: AstroConfig
 ): Promise<PageData> {
-  const html = await fs.readFile(htmlPath, "utf-8");
-  const dom = new JSDOM(html);
-  const doc = dom.window.document;
+  try {
+    const htmlContent = await fs.readFile(htmlFilePath, "utf-8");
+    const documentModel = new JSDOM(htmlContent);
+    const document = documentModel.window.document;
 
-  // Extract title from multiple sources
-  const h1 = doc.querySelector("h1");
-  const titleTag = doc.querySelector("title");
-  const title = h1?.textContent?.trim() || 
-                titleTag?.textContent?.trim() || 
-                pathname.split("/").filter(Boolean).pop() || "Untitled";
+    const extractedTitle = extractTitleFromDocument(document, pathname);
+    const metaDescription = extractMetaDescription(document);
+    const mainContent = await extractMainContentAsMarkdown(document);
 
-  // Extract description from meta tag
-  const metaDesc = doc
-    .querySelector('meta[name="description"]')
-    ?.getAttribute("content")
-    ?.trim();
-
-  // Extract main content
-  const main = doc.querySelector("main") || doc.querySelector("body");
-  let content = "";
-  
-  if (main) {
-    // Remove title from content to avoid duplication
-    if (h1) h1.remove();
-    
-    content = await entryToSimpleMarkdown(
-      main.innerHTML.trim(),
-      ['header', 'footer', 'nav', '.no-llms'],
-      false
-    );
+    return {
+      pathname,
+      title: extractedTitle,
+      description: metaDescription,
+      content: mainContent.trim(),
+      slug: pathname
+    };
+  } catch (error) {
+    throw new Error(`Failed to extract page data from ${htmlFilePath}: ${error}`);
   }
-
-  return {
-    pathname,
-    title,
-    description: metaDesc,
-    content: content.trim(),
-    slug: pathname
-  };
 }
 
 /**
- * Generate the main llms.txt index file
+ * Generate optimized llms.txt index file
  */
-async function generateLlmsTxt(
+async function generateOptimizedLlmsIndexFile(
   pages: PageData[],
   config: Required<LlmsConfig>,
-  distDir: string
+  baseUrl: string,
+  outputDirectory: string
 ): Promise<void> {
+  const contentLines = createIndexFileContent(pages, config, baseUrl);
+  const outputFilePath = path.join(outputDirectory, "llms.txt");
+  await fs.writeFile(outputFilePath, contentLines, "utf-8");
+}
+
+/**
+ * Generate optimized llms-small.txt structure file
+ */
+async function generateOptimizedLlmsSmallFile(
+  pages: PageData[],
+  config: Required<LlmsConfig>,
+  baseUrl: string,
+  outputDirectory: string
+): Promise<void> {
+  const contentLines = createSmallFileContent(pages, config, baseUrl);
+  const outputFilePath = path.join(outputDirectory, "llms-small.txt");
+  await fs.writeFile(outputFilePath, contentLines, "utf-8");
+}
+
+/**
+ * Generate optimized llms-full.txt content file
+ */
+async function generateOptimizedLlmsFullFile(
+  pages: PageData[],
+  config: Required<LlmsConfig>,
+  outputDirectory: string
+): Promise<void> {
+  const contentLines = createFullFileContent(pages, config);
+  const outputFilePath = path.join(outputDirectory, "llms-full.txt");
+  await fs.writeFile(outputFilePath, contentLines, "utf-8");
+}
+
+/**
+ * Legacy functions for backward compatibility
+ */
+async function generateLlmsIndexFile(
+  pages: PageData[],
+  config: Required<LlmsConfig>,
+  distDirectory: string,
+  astroConfig: AstroConfig
+): Promise<void> {
+  const contentLines = createIndexFileContent(pages, config, astroConfig.site || "");
+  await fs.writeFile(path.join(distDirectory, "llms.txt"), contentLines, "utf-8");
+}
+
+async function generateLlmsSmallFile(
+  pages: PageData[],
+  config: Required<LlmsConfig>,
+  distDirectory: string,
+  astroConfig: AstroConfig
+): Promise<void> {
+  const contentLines = createSmallFileContent(pages, config, astroConfig.site || "");
+  await fs.writeFile(path.join(distDirectory, "llms-small.txt"), contentLines, "utf-8");
+}
+
+async function generateLlmsFullFile(
+  pages: PageData[],
+  config: Required<LlmsConfig>,
+  distDirectory: string
+): Promise<void> {
+  const contentLines = createFullFileContent(pages, config);
+  await fs.writeFile(path.join(distDirectory, "llms-full.txt"), contentLines, "utf-8");
+}
+
+// ====== UTILITY FUNCTIONS ======
+
+function createPlaceholderContent(title: string, description: string): string {
+  return [
+    `# ${title}`,
+    `> ${description}`,
+    "",
+    "## Pages",
+    "",
+    "*Generating page list...*",
+    "",
+    "*Auto-generated documentation index*"
+  ].join("\n");
+}
+
+function createIndexFileContent(pages: PageData[], config: Required<LlmsConfig>, baseUrl: string): string {
   const lines: string[] = [
     `# ${config.title}`,
     `> ${config.description}`,
@@ -190,60 +339,42 @@ async function generateLlmsTxt(
     ""
   ];
 
-  // Group pages by directory for better organization
   const groupedPages = groupPagesByDirectory(pages);
   
-  for (const [directory, dirPages] of Object.entries(groupedPages)) {
-    if (directory !== "/") {
-      lines.push(`### ${directory}`);
+  for (const [directoryName, directoryPages] of Object.entries(groupedPages)) {
+    if (directoryName !== "/") {
+      lines.push(`### ${directoryName}`);
       lines.push("");
     }
     
-    for (const page of dirPages) {
-      const url = page.pathname;
-      const description = page.description ? ` - ${page.description}` : "";
-      lines.push(`- [${page.title}](${url})${description}`);
+    for (const page of directoryPages) {
+      const pageUrl = baseUrl ? new URL(page.pathname, baseUrl).toString() : page.pathname;
+      const pageDescription = page.description ? ` - ${page.description}` : "";
+      lines.push(`- [${page.title}](${pageUrl})${pageDescription}`);
     }
     lines.push("");
   }
 
-  lines.push("", `*Auto-generated documentation index*`);
-
-  const content = lines.join("\n").trim();
-  await fs.writeFile(path.join(distDir, "llms.txt"), content, "utf-8");
+  lines.push("", "*Auto-generated documentation index*");
+  return lines.join("\n").trim();
 }
 
-/**
- * Generate the structure-only llms-small.txt file
- */
-async function generateLlmsSmallTxt(
-  pages: PageData[],
-  config: Required<LlmsConfig>,
-  distDir: string
-): Promise<void> {
+function createSmallFileContent(pages: PageData[], config: Required<LlmsConfig>, baseUrl: string): string {
   const lines: string[] = [
     `# ${config.title}`,
-    `> Structure-only documentation`,
+    "> Structure-only documentation",
     ""
   ];
 
-  // Simple list of titles and URLs
   for (const page of pages) {
-    lines.push(`- [${page.title}](${page.pathname})`);
+    const pageUrl = baseUrl ? new URL(page.pathname, baseUrl).toString() : page.pathname;
+    lines.push(`- [${page.title}](${pageUrl})`);
   }
 
-  const content = lines.join("\n").trim();
-  await fs.writeFile(path.join(distDir, "llms-small.txt"), content, "utf-8");
+  return lines.join("\n").trim();
 }
 
-/**
- * Generate the full content llms-full.txt file
- */
-async function generateLlmsFullTxt(
-  pages: PageData[],
-  config: Required<LlmsConfig>,
-  distDir: string
-): Promise<void> {
+function createFullFileContent(pages: PageData[], config: Required<LlmsConfig>): string {
   const lines: string[] = [
     `# ${config.title}`,
     `> ${config.description}`,
@@ -264,42 +395,121 @@ async function generateLlmsFullTxt(
     });
 
   lines.push(pageContents.join(config.customSeparator));
-
-  const content = lines.join("\n").trim();
-  await fs.writeFile(path.join(distDir, "llms-full.txt"), content, "utf-8");
+  return lines.join("\n").trim();
 }
 
-/**
- * Group pages by their directory for better organization
- */
 function groupPagesByDirectory(pages: PageData[]): Record<string, PageData[]> {
   const groups: Record<string, PageData[]> = {};
   
   for (const page of pages) {
-    const dir = path.dirname(page.pathname);
-    const dirName = dir === "/" || dir === "." ? "/" : dir.split("/").filter(Boolean).pop() || "/";
+    const directoryPath = path.dirname(page.pathname);
+    const directoryName = directoryPath === "/" || directoryPath === "." 
+      ? "/" 
+      : directoryPath.split("/").filter(Boolean).pop() || "/";
     
-    if (!groups[dirName]) {
-      groups[dirName] = [];
+    if (!groups[directoryName]) {
+      groups[directoryName] = [];
     }
-    groups[dirName].push(page);
+    groups[directoryName].push(page);
   }
   
   return groups;
 }
 
-/**
- * Get the HTML file path for a given pathname
- */
-function getHtmlPath(pathname: string, distDir: string): string {
+function extractTitleFromDocument(document: Document, pathname: string): string {
+  const h1Element = document.querySelector("h1");
+  const titleElement = document.querySelector("title");
+  
+  return h1Element?.textContent?.trim() || 
+         titleElement?.textContent?.trim() || 
+         pathname.split("/").filter(Boolean).pop() || 
+         "Untitled";
+}
+
+function extractMetaDescription(document: Document): string | undefined {
+  return document
+    .querySelector('meta[name="description"]')
+    ?.getAttribute("content")
+    ?.trim();
+}
+
+async function extractMainContentAsMarkdown(document: Document): Promise<string> {
+  const mainElement = document.querySelector("main") || document.querySelector("body");
+  
+  if (!mainElement) return "";
+  
+  // Remove title to avoid duplication
+  const h1Element = mainElement.querySelector("h1");
+  if (h1Element) h1Element.remove();
+  
+  return await SimpleMarkdown(
+    mainElement.innerHTML.trim(),
+    ['header', 'footer', 'nav', '.no-llms', 'script', 'style'],
+    false
+  );
+}
+
+function getHtmlFilePath(pathname: string, distDirectory: string): string {
   if (pathname.endsWith("/")) {
-    return path.join(distDir, pathname, "index.html");
+    return path.join(distDirectory, pathname, "index.html");
   }
   
-  // Handle both /page and /page.html cases
-  const htmlPath = path.join(distDir, pathname + ".html");
-  const indexPath = path.join(distDir, pathname, "index.html");
+  const htmlFilePath = path.join(distDirectory, pathname + ".html");
+  const indexFilePath = path.join(distDirectory, pathname, "index.html");
   
-  // Return the index.html path for directory-style routes
-  return pathname.includes(".") ? htmlPath : indexPath;
+  return pathname.includes(".") ? htmlFilePath : indexFilePath;
+}
+
+function getOutputDirectory(outputDir?: string): string {
+  return outputDir ? path.join(process.cwd(), outputDir) : process.cwd();
+}
+
+function createCacheKey(astroConfig: AstroConfig, userConfig: LlmsConfig): string {
+  return JSON.stringify({ astroConfig: astroConfig.site, userConfig });
+}
+
+function createPageCacheKey(pathname: string, distDirectory: string): string {
+  return `${pathname}-${distDirectory}`;
+}
+
+function sortPagesByPathname(pages: PageData[]): PageData[] {
+  return pages.sort((a, b) => a.pathname.localeCompare(b.pathname));
+}
+
+async function extractPackageDescription(): Promise<string> {
+  try {
+    const packageFilePath = path.join(process.cwd(), "package.json");
+    const packageContent = await fs.readFile(packageFilePath, "utf-8");
+    const packageData = JSON.parse(packageContent);
+    return packageData.description || "";
+  } catch {
+    return "";
+  }
+}
+
+function generateTitleFromSite(siteUrl?: string): string {
+  if (!siteUrl) return "Documentation";
+  
+  try {
+    const url = new URL(siteUrl);
+    return url.hostname.replace(/^www\./, "");
+  } catch {
+    return siteUrl;
+  }
+}
+
+async function writeAllPlaceholderFiles(outputDirectory: string, content: string): Promise<void> {
+  await Promise.all([
+    fs.writeFile(path.join(outputDirectory, "llms.txt"), content, "utf-8"),
+    fs.writeFile(path.join(outputDirectory, "llms-small.txt"), content, "utf-8"),
+    fs.writeFile(path.join(outputDirectory, "llms-full.txt"), content, "utf-8")
+  ]);
+}
+
+async function ensureDirectoryExists(directoryPath: string): Promise<void> {
+  try {
+    await fs.mkdir(directoryPath, { recursive: true });
+  } catch (error) {
+    // Directory might already exist
+  }
 }

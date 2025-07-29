@@ -154,7 +154,7 @@ const htmlToMarkdownPipeline = unified()
 	.use(remarkStringify);
 
 /** Render html content to Markdown to support rendering and simplifying MDX components */
-export async function entryToSimpleMarkdown(
+export async function SimpleMarkdown(
 	html: string,
  	ignoreSelectors: string[] = [],
 	onlyStructure: boolean = false,
