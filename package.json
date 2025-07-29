@@ -1,6 +1,6 @@
 {
-	"name": "@nermalcat69/astro-llms",
-	"version": "2.0.0",
+	"name": "astro-llms-generate",
+	"version": "1.0.0",
 	"license": "MIT",
 	"description": "Enhanced Astro integration to automatically generate AI-friendly documentation files: /llms.txt, /llms-small.txt, and /llms-full.txt",
 	"author": "nermalcat69",
@@ -33,9 +33,9 @@
 		"unist-util-remove": "^4.0.0"
 	},
 	"devDependencies": {
-		"@types/node": "^22.16.5",
 		"astro": "^5.1.6",
-		"typescript": "^5.6.0"
+		"typescript": "^5.6.0",
+		"@types/node": "^22.0.0"
 	},
 	"peerDependencies": {
 		"astro": "^5.1.6"
@@ -49,7 +49,7 @@
 	"homepage": "https://github.com/nermalcat69/astro-llms",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/nermalcat69/astro-llms.git"
+		"url": "git+https://github.com/nermalcat69/astro-llms.git"
 	},
 	"bugs": "https://github.com/nermalcat69/astro-llms/issues",
 	"keywords": [

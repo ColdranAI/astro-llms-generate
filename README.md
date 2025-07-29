@@ -1,4 +1,4 @@
-# @nermalcat69/astro-llms
+# astro-llms-generate
 
 **Minimal LLMs TXT Generator for Astro Sites**
 
@@ -13,17 +13,17 @@ Automatically discovers and processes all your Astro pages to generate three opt
 ## Installation
 
 ```bash
-pnpm i @nermalcat69/astro-llms
+pnpm i astro-llms-generate
 
-npm i @nermalcat69/astro-llms
+npm i astro-llms-generate
 
-yarn add @nermalcat69/astro-llms
+yarn add astro-llms-generate
 ```
 
 Or install directly with Astro:
 
 ```bash
-pnpm astro add @nermalcat69/astro-llms
+pnpm astro add astro-llms-generate
 ```
 
 ## Usage
@@ -32,7 +32,7 @@ pnpm astro add @nermalcat69/astro-llms
 
 ```javascript
 import { defineConfig } from 'astro/config';
-import astroLlmsTxt from '@nermalcat69/astro-llms';
+import astroLlmsTxt from 'astro-llms-generate';
 
 export default defineConfig({
   site: 'https://example.com', // Auto-generates title from domain
