@@ -1,6 +1,13 @@
-# astro-llms-generate
+# Minimal LLMs TXT Generator for Astro Sites
 
-**Minimal LLMs TXT Generator for Astro Sites**
+```bash
+npm i astro-llms-generate
+```
+
+<img width="1200" alt="image" src="https://github.com/user-attachments/assets/196df21e-d091-4a3a-8017-95436b898585" />
+
+
+Watch [Tutorial Video](https://www.youtube.com/watch?v=dtFMS7W2K9k).
 
 Automatically discovers and processes all your Astro pages to generate three optimized documentation files:
 
