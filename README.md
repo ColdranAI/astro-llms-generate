@@ -1,19 +1,27 @@
 # Minimal LLMs TXT Generator for Astro Sites
 
-```bash
+Automatically discovers and processes all your Astro pages to generate three optimized documentation files:
+
+#### Installation
+
+```
 npm i astro-llms-generate
 ```
+
+<br />
+
+- **`/llms.txt`** – Smart index with titles, descriptions, and organized links grouped by directory
+- **`/llms-small.txt`** – Ultra-compact structure-only version (titles + URLs)  
+- **`/llms-full.txt`** – Complete Markdown content dump with full page content
+
+<br />
 
 <img width="1200" alt="image" src="https://github.com/user-attachments/assets/196df21e-d091-4a3a-8017-95436b898585" />
 
 
 Watch [Tutorial Video](https://www.youtube.com/watch?v=dtFMS7W2K9k).
 
-Automatically discovers and processes all your Astro pages to generate three optimized documentation files:
 
-- **`/llms.txt`** – Smart index with titles, descriptions, and organized links grouped by directory
-- **`/llms-small.txt`** – Ultra-compact structure-only version (titles + URLs)  
-- **`/llms-full.txt`** – Complete Markdown content dump with full page content
 
 ---
 
@@ -25,12 +33,6 @@ pnpm i astro-llms-generate
 npm i astro-llms-generate
 
 yarn add astro-llms-generate
-```
-
-Or install directly with Astro:
-
-```bash
-pnpm astro add astro-llms-generate
 ```
 
 ## Usage
