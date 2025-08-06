@@ -96,13 +96,6 @@ Files are automatically generated in the **build output directory** during `astr
 - Available at `/llms.txt`, `/llms-small.txt`, `/llms-full.txt` in your final deployment
 - Generated only when running `astro build` (not during development)
 
-## Performance Features
-
-- **Build-time Generation**: Runs during `astro:build:done` for final deployment
-- **Memory Efficient**: Uses smaller batch processing to prevent memory issues
-- **Parallel Processing**: Generates all three files simultaneously
-- **Smart Cleanup**: Properly disposes of JSDOM instances and triggers garbage collection
-
 *ps: forked from [@4hse/astro-llms-txt](https://github.com/4hse/astro-llms-txt) for personal usage*
 
 ## 🤝 Contributing
