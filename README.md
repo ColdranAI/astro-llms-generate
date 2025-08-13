@@ -62,7 +62,8 @@ export default defineConfig({
       description: 'Custom description for AI systems',
       includePatterns: ['**/*'], // Pages to include
       excludePatterns: ['**/404*', '**/api/**'], // Pages to exclude
-      customSeparator: '\n\n---\n\n' // Custom separator for full content
+      customSeparator: '\n\n---\n\n', // Custom separator for full content
+      i18n: false // Enable multilingual support - generates llms-en.txt, llms-es.txt, etc.
     }),
   ],
 });
